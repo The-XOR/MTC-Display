@@ -1,7 +1,7 @@
 # MTC-Display
 Arduino MIDI MTC Display
 
-Here in all its beauty, with a professional grade architectonical [!beauty](https://github.com/The-XOR/MTC-Display/raw/main/example.jpg?raw=true)
+Here in all its beauty, with a professional grade architectonical beauty ![photo](example.jpg)
 
 
 **Dependencies:
