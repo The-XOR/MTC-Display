@@ -14,7 +14,7 @@ USBMIDI_CREATE_DEFAULT_INSTANCE();
 #define DIN 7
 #define CS 6
 #define CLK 5   
-DigitLedDisplay ld = DigitLedDisplay(DIN, CS, CLK);
+DigitLedDisplay ld = DigitLedDisplay(8, DIN, CS, CLK);
 char toDisp[30];
 
 enum { F24 = 0, F25 = 2, F30DF = 4, F30 = 6 }; // Frames type
@@ -58,12 +58,9 @@ void handleTimeCodeQuarterFrame(byte data)
 
 void setup()
 {
-  /* Set the brightness min:1, max:15 */
   ld.setBright(1);
-  /* Set the digit count */
-  ld.setDigitLimit(8);  
   ld.clear();
-  strcpy(toDisp, "_thexor_");
+  strcpy(toDisp, "!thExOR!");
   MIDI.setHandleTimeCodeQuarterFrame(handleTimeCodeQuarterFrame);
   MIDI.begin(1);    //listen channel 1, ma tanto non e' usato    
 }
