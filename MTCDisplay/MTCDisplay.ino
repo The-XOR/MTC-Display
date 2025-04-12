@@ -1,3 +1,5 @@
+// device: Arduino Leonardo
+
 #include <MIDIUSB.h>
 #include <MIDIUSB_Defs.h>
 #include <MIDI.h>
@@ -54,7 +56,6 @@ void handleTimeCodeQuarterFrame(byte data)
       sprintf(toDisp, "%02d.%02d.%02d.%02d", h, m, s, f);
     }  
 }
-
 
 void setup()
 {
