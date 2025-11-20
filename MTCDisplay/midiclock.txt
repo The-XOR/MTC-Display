@@ -1,0 +1,34 @@
+To calculate the current measure in 7/8 time from MIDI clock, divide the total number of MIDI clock pulses by 24 (pulses per quarter note) 
+to get the number of beats, and then divide that by 7 (beats per measure) to find the measure number. 
+The current measure is found by taking the result modulo 1 and adding 1, or simply rounding the result up.
+- Here's the calculation step-by-step:
+    1 Get the total beats elapsed:
+        A MIDI clock sends 24 pulses per quarter note.
+        A quarter note is a single beat in 7/4 time, but in 7/8 time, a beat is an eighth note.
+        An eighth note is half the length of a quarter note.T
+        Therefore, there are 2 eighth notes per quarter note.
+        Total beats = (Total MIDI clock pulses) / 24 * 2
+        
+    2 Get the total measures elapsed:
+        A measure in 7/8 time has 7 eighth-note beats.
+        Total measures = (Total beats) / 7
+        
+    3 Calculate the current measure:
+        The current measure is the remainder after dividing the total measures by the total number of measures in the song.
+        Current measure = (Total measures) modulo 1
+        If the total measures are not an integer, add 1 to the decimal to get the current measure. For example, if the result 
+        is 3.2, the current measure is 4.
+        
+- Example:
+    Let's say the total MIDI clock pulses are 300.
+    1) Total beats: (300 / 24) * 2 = 12.5 * 2 = 25 beats.
+    2) Total measures: 25 / 7 = 3.57 
+    3) Current measure: Since 3.57 is greater than 3, the song is in the 4th measure.
+    Therefore, if the total MIDI clock pulses are 300, the current measure is 4.
+    
+
+		// la si presuppone la non comune misuranza di 4/4
+	  uint16_t m = songPosition / 96;
+    uint8_t b = (songPosition % 96) / 24;
+    uint8_t s = songPosition % 24;
+		sprintf(toDisp, "%02d %02d %02d", m+1, b+1, s);
