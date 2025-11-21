@@ -17,6 +17,8 @@ USBMIDI_CREATE_DEFAULT_INSTANCE();
 #define CS 6
 #define CLK 5
 #define BANNER "tHE XOR "
+#define PPQN	24
+#define QUARTER_NOTE  4
 
 DigitLedDisplay ld = DigitLedDisplay(8, DIN, CS, CLK);
 char toDisp[20];
@@ -27,6 +29,9 @@ volatile uint16_t songPosition;
 volatile bool transportRunning;
 volatile uint16_t signature_numerator;
 volatile uint16_t signature_denominator;
+volatile uint16_t ticks_per_measure;
+volatile uint16_t ticks_per_beats;
+volatile uint16_t ticks_per_subdivision;
 
 enum
 {
@@ -110,7 +115,7 @@ void handleContinue()
 
 void handleStop()
 {
-	lastMsg = millis();
+	lastMsg = millis(); 
 	transportRunning = false;
 }
 
@@ -121,37 +126,57 @@ void handleReset()
 
 void handleSongPosition(uint16_t beats)
 {
+	// il messaggio song position pointer misura i BEAT (ottavi di note); quindi beats indica quanti 1/8 di nota sono passati
+	/*
+	la conversione richiede due passaggi:
+	1. Dagli Ottavi ai Quarti
+	   L'unità base dell'SPP è l'ottavo. Poiché una nota da un quarto equivale a due note da un ottavo, dobbiamo raddoppiare il valore SPP per portarlo all'unità 
+	   di misura base del Tick (il quarto). Valore in Quarti = Valore SPP} / 2
+	2. Dai Quarti ai Ticks
+	   Il MIDI Clock standard fornisce 24 impulsi (tick) per ogni nota da un quarto. Moltiplichiamo il risultato precedente per 24.
+	   Ticks totali = Valore in Quarti} * 24
+	   Combinando le due operazioni otteniamo la formula finale:
+	   Ticks totali = (Valore SPP/2) * 24
+	   Semplificando:
+	   Ticks totali = Valore SPP * 12
+	*/
 	lastMsg = millis();
-	songPosition = beats * 6;
+	songPosition = beats * 12;
 	updateMidiClockDisplay();
 }
 
 void handleControlChange(byte channel, byte control, byte value)
 {
-	if(midiclock_enabled)
+	lastMsg = millis();
+	switch(control)
 	{
-		lastMsg = millis();
-		switch(control)
-		{
-			case 0x59: // Time Signature: denominatore
-				if(value > 0 && value <= 16)
-				{
-					signature_denominator = value; 
-					songPosition = 0;
-					sprintf(toDisp, "S: %d/%d", signature_numerator, signature_denominator);	
-				}
-				break;
-
-			case 0x58: // Time Signature: numeratore
-				if(value > 0 && value <= 16)
-				{
-					signature_numerator = value; // Numerator
-					songPosition = 0;
-					sprintf(toDisp, "S: %d/%d", signature_numerator, signature_denominator);	
-				}
-				break;
-		}
+		case 0x58: // Time Signature: ultimi 3 bit denominatore, 4 bit piu' significativi numeratore
+			// 000 = denom 1
+			// 001 = denom 2
+			// 010 = denom 4
+			// 100 = denom 8
+			// 101 = denom 16
+			// 110 = denom 32
+			// 111 = denom 64
+			signature_denominator << (value & 0x7);	
+			signature_numerator = (value >> 3) & 0x0f;
+			updateSignature();
+			showSignature();
+			break;
 	}
+}
+
+void showSignature()
+{
+	sprintf(toDisp, ": %d/%d :", signature_numerator, signature_denominator);	
+}
+
+void updateSignature()
+{
+	songPosition = 0;
+	ticks_per_beats = PPQN / (signature_denominator / QUARTER_NOTE);
+	ticks_per_measure = ticks_per_beats * signature_numerator;
+	ticks_per_subdivision = ticks_per_beats / 2;
 }
 
 void handleProgramChange(byte channel, byte program) 
@@ -164,27 +189,17 @@ void updateMidiClockDisplay()
 {
 	if(midiclock_enabled)
 	{
-		// Compute clocks per beat and per measure using the current time signature.
-		// MIDI has 24 clocks per quarter note, so clocks per beat = 96 / denominator.
-	  	
-		uint16_t total_beats = (songPosition / 24) * signature_denominator);
-		uint16_t m = 1+(total_beats / signature_numerator);
-
-		uint16_t clocks_per_beat = 96 / signature_denominator; // 96 = 24 * 4
-		if(clocks_per_beat == 0) 
-			return;
-
-		uint16_t clocks_per_measure = clocks_per_beat * signature_numerator;
-		if(clocks_per_measure == 0) 
-			return;
-
-		uint16_t rem = songPosition % clocks_per_measure
-		uint16_t b = rem / clocks_per_beat;
-		uint16_t s = rem % clocks_per_beat;
-		if(m < 100)
-			sprintf(toDisp, "%02lu %02lu %02lu", m, b+1, s);
-		else
-			sprintf(toDisp, "%03lu.%02lu %02lu", m, b+1, s);
+	  	uint16_t pos = songPosition - 1;
+		if(pos >= 0)
+		{
+			uint16_t m = 1+(pos/ticks_per_measure);
+			uint8_t b = 1+(pos % ticks_per_measure)/ticks_per_beats;
+			uint8_t s = 1+(pos % ticks_per_beats)/ticks_per_subdivision;
+			if(m < 100)
+				sprintf(toDisp, "%02lu %02lu %02lu", m, b, s);
+			else
+				sprintf(toDisp, "%03lu.%02lu %02lu", m, b, s);
+		}
 	}
 }
 
@@ -197,13 +212,13 @@ void clr()
 void initialize()
 {
 	clr();	
+	signature_numerator = 4;
+	signature_denominator = 4;
+	updateSignature();
 	lastSMPTETime = 0;
 	lastMsg = millis();
 	midiclock_enabled = false;
 	transportRunning = false;
-	songPosition = 0;
-	signature_numerator = 4;
-	signature_denominator = 4;
 }
 
 void setup()
@@ -237,14 +252,16 @@ void loop()
 		memset(toDisp, 0, sizeof(toDisp));
 	}
 
-	bool test_mclock = (millis() - lastSMPTETime > 10000); // se non si riceve un casso entro 10 secondi, abilita la POSSIBILE riceziun del midiclock. Altrimenti, SMPTE got the prece/dance.	
+	bool test_mclock = (millis() - lastSMPTETime > 10000); // se non si riceve un MTC entro 10 secondi, abilita la POSSIBILE riceziun del midiclock. Altrimenti, SMPTE got the prece/dance.	
 	if(test_mclock != midiclock_enabled)
 	{
 		clr();	
 		midiclock_enabled = test_mclock;
+		if(midiclock_enabled)
+			showSignature();
 	} 
 	
-	if((millis() - lastMsg) > 1200000) // se non si riceve lo stesso casso di cui sopra per 20 minuti, o ci siamo addormentati, o siamo morti o molto piu' probabilmente ubriachi come la merda
+	if((millis() - lastMsg) > 120000) // se non si riceve lo stesso casso di cui sopra per 2 minuti, o ci siamo addormentati, o siamo morti o molto piu' probabilmente ubriachi come la merda
 	{
 		clr();	
 	}		
