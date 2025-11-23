@@ -1,4 +1,7 @@
 // device: Arduino Leonardo
+// ATTANSIUN:
+// Non serve smontare tuttecose, il programma viene trasmesso via USB senza 
+// abbisogna di accedere all'hardware.
 
 #include <MIDIUSB.h>
 #include <MIDIUSB_Defs.h>
@@ -6,6 +9,8 @@
 #include "USB-MIDI.h"
 #include "DigitLedDisplayEx.h"
 //#define SERIAL_DEBUG
+
+#define VERSION " VER 2.0 "
 
 USBMIDI_CREATE_DEFAULT_INSTANCE();
 
@@ -22,16 +27,15 @@ USBMIDI_CREATE_DEFAULT_INSTANCE();
 
 DigitLedDisplay ld = DigitLedDisplay(8, DIN, CS, CLK);
 char toDisp[20];
-volatile unsigned long lastSMPTETime;
+volatile unsigned long idleTime;
+volatile uint8_t idleMode;
 volatile unsigned long lastMsg;
-volatile bool midiclock_enabled;
 volatile uint16_t songPosition;
 volatile bool transportRunning;
 volatile uint16_t signature_numerator;
 volatile uint16_t signature_denominator;
 volatile uint16_t ticks_per_measure;
 volatile uint16_t ticks_per_beats;
-volatile uint16_t ticks_per_subdivision;
 
 enum
 {
@@ -44,7 +48,7 @@ enum
 void handleTimeCodeQuarterFrame(byte data)
 {
 	static byte tc[8];
-	lastMsg = lastSMPTETime = millis();
+	lastMsg = millis();
 	int indice = (data & 0xf0) >> 4;
 	if (indice > 7)
 		return;
@@ -112,36 +116,31 @@ void handleContinue()
 	lastMsg = millis();
 	transportRunning = true;
 }
-
+ 
 void handleStop()
 {
 	lastMsg = millis(); 
 	transportRunning = false;
 }
 
-void handleReset()
-{
-	initialize();
-}
-
 void handleSongPosition(uint16_t beats)
 {
-	// il messaggio song position pointer misura i BEAT (ottavi di note); quindi beats indica quanti 1/8 di nota sono passati
+	// il messaggio song position pointer misura i BEAT (sedicesimi di note); quindi beats indica quanti 1/16 di nota sono passati
 	/*
 	la conversione richiede due passaggi:
-	1. Dagli Ottavi ai Quarti
-	   L'unità base dell'SPP è l'ottavo. Poiché una nota da un quarto equivale a due note da un ottavo, dobbiamo raddoppiare il valore SPP per portarlo all'unità 
-	   di misura base del Tick (il quarto). Valore in Quarti = Valore SPP} / 2
+	1. Dai sedicesimi ai Quarti
+	   L'unità base dell'SPP è il sedicesimo. Poiché una nota da un quarto equivale a 4 note da 1/16, 
+		 dobbiamo quadruplicare il valore SPP per portarlo all'unità di misura base del Tick (il quarto). Valore in Quarti = Valore SPP / 4
 	2. Dai Quarti ai Ticks
 	   Il MIDI Clock standard fornisce 24 impulsi (tick) per ogni nota da un quarto. Moltiplichiamo il risultato precedente per 24.
-	   Ticks totali = Valore in Quarti} * 24
+	   Ticks totali = Valore in Quarti * 24
 	   Combinando le due operazioni otteniamo la formula finale:
-	   Ticks totali = (Valore SPP/2) * 24
+	   Ticks totali = (Valore SPP/4) * 24
 	   Semplificando:
-	   Ticks totali = Valore SPP * 12
+	   Ticks totali = Valore SPP * 6
 	*/
 	lastMsg = millis();
-	songPosition = beats * 12;
+	songPosition = beats * 6;
 	updateMidiClockDisplay();
 }
 
@@ -150,25 +149,41 @@ void handleControlChange(byte channel, byte control, byte value)
 	lastMsg = millis();
 	switch(control)
 	{
-		case 0x58: // Time Signature: ultimi 3 bit denominatore, 4 bit piu' significativi numeratore
-			// 000 = denom 1
-			// 001 = denom 2
-			// 010 = denom 4
-			// 100 = denom 8
-			// 101 = denom 16
-			// 110 = denom 32
-			// 111 = denom 64
-			signature_denominator << (value & 0x7);	
+		case 102: // Time Signature: ultimi 3 bit denominatore, 4 bit piu' significativi numeratore
+			// 000 = 0 = denom 1
+			// 001 = 1 = denom 2
+			// 010 = 2 = denom 4
+			// 011 = 3 = denom 8
+			// 100 = 4 = denom 16
+			// 101 = 5 = denom 32
+			// 110 = 6 = denom 64
+			signature_denominator = 1 << (value & 0x7);	
 			signature_numerator = (value >> 3) & 0x0f;
 			updateSignature();
 			showSignature();
 			break;
+
+		case 103:	// CONTROL
+		{
+			switch(value)
+			{
+				case 0x00:  // 103 0 = RESET
+					initialize();
+					break;
+
+				case 0x01:	// 103 1  = SHOW SIGNATURE
+					showSignature();
+					break;
+			}
+		}
+		break;
 	}
 }
 
 void showSignature()
 {
-	sprintf(toDisp, ": %d/%d :", signature_numerator, signature_denominator);	
+	ld.clear();
+	sprintf(toDisp, "%d / %d", signature_numerator, signature_denominator);
 }
 
 void updateSignature()
@@ -176,36 +191,22 @@ void updateSignature()
 	songPosition = 0;
 	ticks_per_beats = PPQN / (signature_denominator / QUARTER_NOTE);
 	ticks_per_measure = ticks_per_beats * signature_numerator;
-	ticks_per_subdivision = ticks_per_beats / 2;
-}
-
-void handleProgramChange(byte channel, byte program) 
-{
-	if(program == 127)  // PC 127 ---> reset generale (cosi', a gradire, se dovesse servire...)
-		initialize();
 }
 
 void updateMidiClockDisplay()
 {
-	if(midiclock_enabled)
-	{
-	  	uint16_t pos = songPosition - 1;
-		if(pos >= 0)
-		{
-			uint16_t m = 1+(pos/ticks_per_measure);
-			uint8_t b = 1+(pos % ticks_per_measure)/ticks_per_beats;
-			uint8_t s = 1+(pos % ticks_per_beats)/ticks_per_subdivision;
-			if(m < 100)
-				sprintf(toDisp, "%02lu %02lu %02lu", m, b, s);
-			else
-				sprintf(toDisp, "%03lu.%02lu %02lu", m, b, s);
-		}
-	}
+	uint16_t m = 1+(songPosition/ticks_per_measure);
+	uint16_t b = 1+(songPosition % ticks_per_measure)/ticks_per_beats;
+	uint16_t s = songPosition % ticks_per_beats;
+	if(m < 100)
+		sprintf(toDisp, "%02u %02u %02u", m, b, s);
+	else
+		sprintf(toDisp, "%03u.%02u %02u", m, b, s);
 }
 
 void clr()
 {
-	memset(toDisp, 0, sizeof(toDisp));
+	ld.clear();
 	strcpy(toDisp, BANNER);
 }
 
@@ -215,9 +216,9 @@ void initialize()
 	signature_numerator = 4;
 	signature_denominator = 4;
 	updateSignature();
-	lastSMPTETime = 0;
-	lastMsg = millis();
-	midiclock_enabled = false;
+	lastMsg = 0;
+	idleTime = millis();
+	idleMode = 0;
 	transportRunning = false;
 }
 
@@ -230,39 +231,65 @@ void setup()
 	MIDI.setHandleStart(handleStart);
 	MIDI.setHandleContinue(handleContinue);
 	MIDI.setHandleStop(handleStop);
-	MIDI.setHandleReset(handleReset);
-  	MIDI.setHandleProgramChange(handleProgramChange);
-  	MIDI.setHandleControlChange(handleControlChange);
+ 	MIDI.setHandleControlChange(handleControlChange);
 	MIDI.setHandleSongPosition(handleSongPosition);
 
 	initialize();
 	MIDI.begin(1); // listen channel 1, ma tanto non e' usato
 	#ifdef SERIAL_DEBUG
-	Serial.begin(115200);
+		Serial.begin(115200);
   	Serial.println("Debug abilitato");
 	#endif
+}
+
+void enterIdle()
+{
+	idleTime = millis();
+	idleMode = 0;
+	showIdle();
+}
+
+void showIdle()
+{
+	switch(idleMode)
+	{
+		case 0:
+			clr();
+			break;
+
+		case 1:
+			showSignature();
+			break;
+
+		case 2:
+				strcpy(toDisp, VERSION);
+				break;
+	}
 }
 
 void loop()
 {
 	MIDI.read();
-	if(toDisp[0])
+	if(toDisp[0] != 0)
 	{
 		ld.printString(toDisp);
-		memset(toDisp, 0, sizeof(toDisp));
+		toDisp[0] = 0;
 	}
 
-	bool test_mclock = (millis() - lastSMPTETime > 10000); // se non si riceve un MTC entro 10 secondi, abilita la POSSIBILE riceziun del midiclock. Altrimenti, SMPTE got the prece/dance.	
-	if(test_mclock != midiclock_enabled)
+	if((millis() - lastMsg) > 60000)		// dopo 60 secondi si va in idle
 	{
-		clr();	
-		midiclock_enabled = test_mclock;
-		if(midiclock_enabled)
-			showSignature();
-	} 
-	
-	if((millis() - lastMsg) > 120000) // se non si riceve lo stesso casso di cui sopra per 2 minuti, o ci siamo addormentati, o siamo morti o molto piu' probabilmente ubriachi come la merda
+		if(lastMsg != 0)
+			enterIdle();
+		lastMsg = 0;
+	}
+
+	if(lastMsg == 0) // siamo in idle mode
 	{
-		clr();	
-	}		
+		if(millis() - idleTime > 10000)  // ogni 10 secondi cambia scritta
+		{
+			idleTime = millis();
+			idleMode = (idleMode + 1) % 3;
+			showIdle();
+		}
+	}
 }
