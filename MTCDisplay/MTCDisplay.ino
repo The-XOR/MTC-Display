@@ -25,6 +25,13 @@ USBMIDI_CREATE_DEFAULT_INSTANCE();
 #define PPQN	24
 #define QUARTER_NOTE  4
 
+#define LED_DIM		10
+#define LED_G     16
+#define LED_B     15
+#define LED_R     14
+#define LED_ON	  LOW
+#define LED_OFF		HIGH
+
 DigitLedDisplay ld = DigitLedDisplay(8, DIN, CS, CLK);
 char toDisp[20];
 volatile unsigned long idleTime;
@@ -149,6 +156,20 @@ void handleControlChange(byte channel, byte control, byte value)
 	lastMsg = millis();
 	switch(control)
 	{
+		case 104:	// dim: 0 = off, > 0 = on
+			digitalWrite(LED_DIM, value > 0 ? LED_ON : LED_OFF);
+			break;
+
+		case 105: // controllo LED RGB:
+			// bit 0: led rosso
+			// bit 1: led verde
+			// bit 2: led blu
+			printf("Valore = %d", value);
+			digitalWrite(LED_R, (value & 0x01) ? LED_ON : LED_OFF);
+			digitalWrite(LED_G, (value & 0x02) ? LED_ON : LED_OFF);
+			digitalWrite(LED_B, (value & 0x04) ? LED_ON : LED_OFF);
+			break;			
+
 		case 102: // Time Signature: ultimi 3 bit denominatore, 4 bit piu' significativi numeratore
 			// 000 = 0 = denom 1
 			// 001 = 1 = denom 2
@@ -224,6 +245,15 @@ void initialize()
 
 void setup()
 {
+	pinMode(LED_DIM, OUTPUT);
+	digitalWrite(LED_DIM, LED_OFF); 
+	pinMode(LED_R, OUTPUT);
+	digitalWrite(LED_R, LED_OFF); 
+	pinMode(LED_G, OUTPUT);
+	digitalWrite(LED_G, LED_OFF); 
+	pinMode(LED_B, OUTPUT);
+	digitalWrite(LED_B, LED_OFF); 
+
 	ld.setBright(1);
 	ld.clear();
 	MIDI.setHandleTimeCodeQuarterFrame(handleTimeCodeQuarterFrame);

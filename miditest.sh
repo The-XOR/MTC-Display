@@ -22,3 +22,20 @@ SIGNATURE=$((4*8 + 2))
 sendmidi dev $A cc 102 $SIGNATURE
 read -p "Premi INVIO per inviare il comando RESET..."
 sendmidi dev $A cc 103 0
+
+read -p "Premi INVIO per inviare il comando DIM ON"
+sendmidi dev $A cc 104 1
+read -p "Premi INVIO per inviare il comando DIM OFF"
+sendmidi dev $A cc 104 0
+
+read -p "Premi INVIO per inviare il comando LED R ON"
+sendmidi dev $A cc 105 1
+read -p "Premi INVIO per inviare il comando LED G ON"
+sendmidi dev $A cc 105 2
+read -p "Premi INVIO per inviare il comando LED B ON"
+sendmidi dev $A cc 105 4
+read -p "Premi INVIO per inviare il comando ALL LED ON"
+sendmidi dev $A cc 105 7
+read -p "Premi INVIO per inviare il comando ALL LED OFF"
+sendmidi dev $A cc 105 0
+echo "Test completato."
