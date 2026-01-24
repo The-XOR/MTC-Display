@@ -10,7 +10,7 @@
 #include "DigitLedDisplayEx.h"
 //#define SERIAL_DEBUG
 
-#define VERSION " VER 2.0 "
+#define VERSION " VER 2.1 "
 
 USBMIDI_CREATE_DEFAULT_INSTANCE();
 
@@ -245,6 +245,7 @@ void initialize()
 
 void setup()
 {
+	delay(200);
 	pinMode(LED_DIM, OUTPUT);
 	digitalWrite(LED_DIM, LED_OFF); 
 	pinMode(LED_R, OUTPUT);
@@ -256,6 +257,8 @@ void setup()
 
 	ld.setBright(1);
 	ld.clear();
+	delay(200);
+
 	MIDI.setHandleTimeCodeQuarterFrame(handleTimeCodeQuarterFrame);
 	MIDI.setHandleClock(handleClock);
 	MIDI.setHandleStart(handleStart);
@@ -264,6 +267,7 @@ void setup()
  	MIDI.setHandleControlChange(handleControlChange);
 	MIDI.setHandleSongPosition(handleSongPosition);
 
+	delay(1000);
 	initialize();
 	MIDI.begin(1); // listen channel 1, ma tanto non e' usato
 	#ifdef SERIAL_DEBUG
