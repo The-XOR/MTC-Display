@@ -245,7 +245,7 @@ void initialize()
 
 void setup()
 {
-	delay(200);
+	delay(1000);
 	pinMode(LED_DIM, OUTPUT);
 	digitalWrite(LED_DIM, LED_OFF); 
 	pinMode(LED_R, OUTPUT);
